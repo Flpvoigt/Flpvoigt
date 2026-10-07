@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import datetime as dt
 import html
-import io
 import os
 import re
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import TypedDict
-
-from PIL import Image, ImageEnhance, ImageOps
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "assets"
@@ -89,31 +86,65 @@ def terminal(title: str, gradient: str) -> list[str]:
     ]
 
 
-def make_ascii() -> list[str]:
-    image = Image.open(io.BytesIO(get("https://avatars.githubusercontent.com/u/215292676?v=4"))).convert("L")
-    source_width, source_height = image.size
-    image = image.crop((int(source_width * .12), int(source_height * .02), int(source_width * .88), int(source_height * .98)))
-    image = ImageOps.fit(image, (68, 35), method=Image.Resampling.LANCZOS)
-    image = ImageEnhance.Contrast(ImageOps.autocontrast(image, cutoff=2)).enhance(1.35)
-    ramp = " .,:;irsXA253hMHGS#9B&@"
-    return ["".join(ramp[p * (len(ramp) - 1) // 255] for p in image.crop((0, y, 68, y + 1)).getdata()).rstrip() for y in range(35)]
+SPIDER_ART = """           ;               ,
+         ,;                 '.
+        ;:                   :;
+       ::                     ::
+       ::                     ::
+       ':                     :
+        :.                    :
+     ;' ::                   ::  '
+    .'  ';                   ;'  '.
+   ::    :;                 ;:    ::
+   ;      :;.             ,;:     ::
+   :;      :;:           ,;\"      ::
+   ::.      ':;  ..,.;  ;:'     ,.;:
+    \"'\"...   '::,::::: ;:   .;.;\"\"'
+        '\"\"\"....;:::::;,;.;\"\"\"
+    .:::.....'\"':::::::'\",...;::::;.
+   ;:' '\"\"'\"\";.,;:::::;.'\"\"\"\"\"\"  ':;
+  ::'         ;::;:::;::..         :;
+ ::         ,;:::::::::::;:..       ::
+ ;'     ,;;:;::::::::::::::;\";..    ':.
+::     ;:\"  ::::::::::::::::  \":     ::
+ :.    ::   ::::::::::::::::   :     ;
+  ;    ::   ::::::::::::::::   :    ;
+   '   ::   :::::::::.:::::'  ,:   '
+    '  ::    :::::::::::::\"   ::
+       ::     ':::::::::\"'    ::
+       ':       \"\"\"\"\"\"\"'      ::
+        ::                   ;:
+        ':;                 ;:\"
+           ';              ,;'
+            \"'           '\"
+              '""".splitlines()
+
+SPIDER_RED = {20: (17, 22), 21: (18, 21), 22: (19, 21), 23: (18, 21), 24: (17, 22)}
+
+
+def spider_text(line: str, index: int) -> str:
+    if index not in SPIDER_RED:
+        return html.escape(line)
+    start, end = SPIDER_RED[index]
+    return (html.escape(line[:start]) + '<tspan fill="#ff4d6d">' +
+            html.escape(line[start:end]) + "</tspan>" + html.escape(line[end:]))
 
 
 def portrait() -> None:
     parts = terminal(f"{USERNAME.lower()}@github: ~$ ./portrait.sh", "portrait-bg")
-    left = 51
-    parts.append(f'<path d="M20 58v-12h12 M488 46h12v12 M20 520v12h12 M500 520v12h-12" fill="none" stroke="{BORDER}" stroke-width="1" opacity=".75"/>')
-    for index, line in enumerate(make_ascii()):
-        y, begin, duration = 49 + index * 14.2, index * .085, .085
-        width = max(len(line), 1) * 6.15
+    cell_width, left = 8, (520 - max(map(len, SPIDER_ART)) * 8) / 2
+    parts.append('<defs><filter id="red-glow"><feGaussianBlur stdDeviation="1.2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>')
+    for index, line in enumerate(SPIDER_ART):
+        y, begin, duration = 51 + index * 15, index * .11, .11
+        width = max(len(line), 1) * cell_width
         parts += [
-            f'<clipPath id="l{index}"><rect x="{left}" y="{y - 11}" height="14" width="0"><animate attributeName="width" from="0" to="{width:.1f}" begin="{begin:.3f}s" dur="{duration}s" fill="freeze"/></rect></clipPath>',
-            f'<g clip-path="url(#l{index})"><text xml:space="preserve" x="{left}" y="{y}" fill="{TEXT}" font-size="10.2">{html.escape(line)}</text></g>',
-            f'<rect y="{y - 10}" width="6" height="11" fill="{GREEN}" opacity="0"><animate attributeName="x" from="{left}" to="{left + width:.1f}" begin="{begin:.3f}s" dur="{duration}s" fill="freeze"/><set attributeName="opacity" to=".9" begin="{begin:.3f}s"/><set attributeName="opacity" to="0" begin="{begin + duration:.3f}s"/></rect>',
+            f'<clipPath id="l{index}"><rect x="{left:.1f}" y="{y - 12}" height="15" width="0"><animate attributeName="width" from="0" to="{width:.1f}" begin="{begin:.3f}s" dur="{duration}s" fill="freeze"/></rect></clipPath>',
+            f'<g clip-path="url(#l{index})" filter="url(#red-glow)"><text xml:space="preserve" x="{left:.1f}" y="{y}" fill="{TEXT}" font-size="13">{spider_text(line, index)}</text></g>',
+            f'<rect y="{y - 11}" width="8" height="13" fill="{TEXT}" opacity="0"><animate attributeName="x" from="{left:.1f}" to="{left + width:.1f}" begin="{begin:.3f}s" dur="{duration}s" fill="freeze"/><set attributeName="opacity" to=".85" begin="{begin:.3f}s"/><set attributeName="opacity" to="0" begin="{begin + duration:.3f}s"/></rect>',
         ]
     parts.append("</svg>")
-    parts.insert(-1, f'<text x="260" y="553" text-anchor="middle" fill="{MUTED}" font-size="10" opacity="0">render concluído · 68 × 35 · grayscale<animate attributeName="opacity" from="0" to="1" begin="3.1s" dur=".5s" fill="freeze"/></text>')
-    (ASSETS / "felipe-ascii-v2.svg").write_text("".join(parts), encoding="utf-8")
+    parts.insert(-1, f'<line x1="0" y1="535" x2="520" y2="535" stroke="{BORDER}"/><text x="20" y="556" fill="{MUTED}" font-size="11">spider-sense: <tspan fill="#ff4d6d">online</tspan> · web-slinger mode</text><rect x="333" y="545" width="7" height="12" fill="{TEXT}"><animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/></rect>')
+    (ASSETS / "spider-terminal.svg").write_text("".join(parts), encoding="utf-8")
 
 
 def row(y: int, label: str, value: str, delay: float) -> str:
@@ -152,9 +183,12 @@ def grid(days: list[Day]) -> list[list[Day | None]]:
 
 
 def heatmap(days: list[Day]) -> None:
+    current_year = max(dt.date.fromisoformat(day["date"]).year for day in days)
+    days = [day for day in days if dt.date.fromisoformat(day["date"]).year == current_year]
     data = grid(days)
     palette = ("#20272b", "#176b42", "#219653", "#3dcc6f", "#8ff0ae")
-    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="860" height="176" viewBox="0 0 860 176" font-family="{FONT}" role="img" aria-label="Contribuições de {USERNAME}">', '<style>.c{transform-box:fill-box;transform-origin:center;opacity:0;animation:pop .55s ease-out both}.g{animation:pop .55s ease-out both,flash .7s ease-out both}@keyframes pop{0%{opacity:0;transform:scale(.2)}60%{opacity:1;transform:scale(1.1)}100%{opacity:1;transform:scale(1)}}@keyframes flash{0%,45%{filter:brightness(2.4)}100%{filter:brightness(1)}}@media(prefers-reduced-motion:reduce){.c{opacity:1!important;animation:none!important}}</style>']
+    width, height, left, top, step, cell = 1040, 260, 56, 42, 24, 19
+    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" font-family="{FONT}" role="img" aria-label="Contribuições de {USERNAME}">', '<style>.c{transform-box:fill-box;transform-origin:center;opacity:0;animation:pop .55s ease-out both}.g{animation:pop .55s ease-out both,flash .7s ease-out both}@keyframes pop{0%{opacity:0;transform:scale(.2)}60%{opacity:1;transform:scale(1.1)}100%{opacity:1;transform:scale(1)}}@keyframes flash{0%,45%{filter:brightness(2.4)}100%{filter:brightness(1)}}@media(prefers-reduced-motion:reduce){.c{opacity:1!important;animation:none!important}}</style>']
     seen: set[tuple[int, int]] = set()
     for column, week in enumerate(data):
         for day in week:
@@ -164,17 +198,20 @@ def heatmap(days: list[Day]) -> None:
             marker = (date.year, date.month)
             if marker not in seen and date.day <= 7:
                 seen.add(marker)
-                parts.append(f'<text x="{8 + column * 16}" y="14" fill="{MUTED}" font-size="10">{date.strftime("%b")}</text>')
+                parts.append(f'<text x="{left + column * step}" y="25" fill="{MUTED}" font-size="14">{date.strftime("%b")}</text>')
             break
+    for line, label in ((1, "Mon"), (3, "Wed"), (5, "Fri")):
+        parts.append(f'<text x="8" y="{top + line * step + 15}" fill="{MUTED}" font-size="14">{label}</text>')
     for column, week in enumerate(data):
         for line, day in enumerate(week):
             if day is None:
                 continue
             level = min(max(day["level"], 0), 4)
-            parts.append(f'<rect class="c{" g" if level else ""}" x="{8 + column * 16}" y="{25 + line * 16}" width="13" height="13" rx="2.5" fill="{palette[level]}" style="animation-delay:{column * .073 + line * .011:.3f}s"><title>{day["date"]}: {day["count"]} contribuições</title></rect>')
+            parts.append(f'<rect class="c{" g" if level else ""}" x="{left + column * step}" y="{top + line * step}" width="{cell}" height="{cell}" rx="3.5" fill="{palette[level]}" style="animation-delay:{column * .073 + line * .011:.3f}s"><title>{day["date"]}: {day["count"]} contribuições</title></rect>')
     total = sum(day["count"] for day in days)
-    parts += [f'<text x="8" y="158" fill="{TEXT}" font-size="12" font-weight="700">{total:,} contribuições no último ano</text>', f'<text x="852" y="158" text-anchor="end" fill="{MUTED}" font-size="10">menos  <tspan fill="{palette[0]}">■</tspan>  <tspan fill="{palette[1]}">■</tspan>  <tspan fill="{palette[2]}">■</tspan>  <tspan fill="{palette[3]}">■</tspan>  <tspan fill="{palette[4]}">■</tspan>  mais</text>', '</svg>']
-    (ASSETS / "contrib-heatmap-v2.svg").write_text("".join(parts), encoding="utf-8")
+    footer_y = top + 7 * step + 30
+    parts += [f'<text x="{left}" y="{footer_y}" fill="{TEXT}" font-size="17" font-weight="700">{total:,} contribuições em {current_year}</text>', f'<text x="{width - 18}" y="{footer_y}" text-anchor="end" fill="{MUTED}" font-size="12">menos  <tspan fill="{palette[0]}">■</tspan>  <tspan fill="{palette[1]}">■</tspan>  <tspan fill="{palette[2]}">■</tspan>  <tspan fill="{palette[3]}">■</tspan>  <tspan fill="{palette[4]}">■</tspan>  mais</text>', '</svg>']
+    (ASSETS / "contrib-heatmap-v3.svg").write_text("".join(parts), encoding="utf-8")
 
 
 def main() -> None:
