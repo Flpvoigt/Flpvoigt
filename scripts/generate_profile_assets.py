@@ -91,15 +91,18 @@ def terminal(title: str, gradient: str) -> list[str]:
 
 def make_ascii() -> list[str]:
     image = Image.open(io.BytesIO(get("https://avatars.githubusercontent.com/u/215292676?v=4"))).convert("L")
-    image = ImageOps.fit(image, (48, 35), method=Image.Resampling.LANCZOS)
+    source_width, source_height = image.size
+    image = image.crop((int(source_width * .12), int(source_height * .02), int(source_width * .88), int(source_height * .98)))
+    image = ImageOps.fit(image, (68, 35), method=Image.Resampling.LANCZOS)
     image = ImageEnhance.Contrast(ImageOps.autocontrast(image, cutoff=2)).enhance(1.35)
     ramp = " .,:;irsXA253hMHGS#9B&@"
-    return ["".join(ramp[p * (len(ramp) - 1) // 255] for p in image.crop((0, y, 48, y + 1)).getdata()).rstrip() for y in range(35)]
+    return ["".join(ramp[p * (len(ramp) - 1) // 255] for p in image.crop((0, y, 68, y + 1)).getdata()).rstrip() for y in range(35)]
 
 
 def portrait() -> None:
     parts = terminal(f"{USERNAME.lower()}@github: ~$ ./portrait.sh", "portrait-bg")
-    left = 104
+    left = 51
+    parts.append(f'<path d="M20 58v-12h12 M488 46h12v12 M20 520v12h12 M500 520v12h-12" fill="none" stroke="{BORDER}" stroke-width="1" opacity=".75"/>')
     for index, line in enumerate(make_ascii()):
         y, begin, duration = 49 + index * 14.2, index * .085, .085
         width = max(len(line), 1) * 6.15
@@ -109,6 +112,7 @@ def portrait() -> None:
             f'<rect y="{y - 10}" width="6" height="11" fill="{GREEN}" opacity="0"><animate attributeName="x" from="{left}" to="{left + width:.1f}" begin="{begin:.3f}s" dur="{duration}s" fill="freeze"/><set attributeName="opacity" to=".9" begin="{begin:.3f}s"/><set attributeName="opacity" to="0" begin="{begin + duration:.3f}s"/></rect>',
         ]
     parts.append("</svg>")
+    parts.insert(-1, f'<text x="260" y="553" text-anchor="middle" fill="{MUTED}" font-size="10" opacity="0">render concluído · 68 × 35 · grayscale<animate attributeName="opacity" from="0" to="1" begin="3.1s" dur=".5s" fill="freeze"/></text>')
     (ASSETS / "felipe-ascii.svg").write_text("".join(parts), encoding="utf-8")
 
 
@@ -135,7 +139,8 @@ def info_card() -> None:
     parts += [row(y, label, value, start + index * .06) for rows, start in groups for index, (y, label, value) in enumerate(rows)]
     parts += [section(158, "Stack", .45), section(280, "Focus", .81), section(380, "Links", 1.11)]
     parts.append('<g opacity="0"><rect x="20" y="462" width="18" height="18" rx="3" fill="#a8e6c1"/><rect x="43" y="462" width="18" height="18" rx="3" fill="#5c9e78"/><rect x="66" y="462" width="18" height="18" rx="3" fill="#3d6f52"/><rect x="89" y="462" width="18" height="18" rx="3" fill="#a3d8e8"/><rect x="112" y="462" width="18" height="18" rx="3" fill="#a9c9ff"/><animate attributeName="opacity" from="0" to="1" begin="1.35s" dur=".5s" fill="freeze"/></g>')
-    parts.append(f'<text x="20" y="518" fill="{MUTED}" font-size="11" opacity="0">Automatizando tarefas para ter mais tempo<tspan x="20" dy="16">de complicar outras.</tspan><animate attributeName="opacity" from="0" to="1" begin="1.5s" dur=".5s" fill="freeze"/></text></svg>')
+    parts.append(f'<text x="20" y="510" fill="{MUTED}" font-size="11" opacity="0">Automatizando tarefas para ter mais tempo<tspan x="20" dy="16">de complicar outras.</tspan><animate attributeName="opacity" from="0" to="1" begin="1.5s" dur=".5s" fill="freeze"/></text>')
+    parts.append(f'<g opacity="0"><text x="20" y="554" fill="{GREEN}" font-size="11">felipe@github</text><text x="108" y="554" fill="{MUTED}" font-size="11">:~$</text><rect x="137" y="544" width="7" height="12" fill="{TEXT}"><animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/></rect><animate attributeName="opacity" from="0" to="1" begin="1.8s" dur=".4s" fill="freeze"/></g></svg>')
     (ASSETS / "info-card.svg").write_text("".join(parts), encoding="utf-8")
 
 
@@ -148,7 +153,7 @@ def grid(days: list[Day]) -> list[list[Day | None]]:
 
 def heatmap(days: list[Day]) -> None:
     data = grid(days)
-    palette = ("#2a3430", "#2a4a3a", "#3d6f52", "#5c9e78", "#a8e6c1")
+    palette = ("#20272b", "#176b42", "#219653", "#3dcc6f", "#8ff0ae")
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="860" height="176" viewBox="0 0 860 176" font-family="{FONT}" role="img" aria-label="Contribuições de {USERNAME}">', '<style>.c{transform-box:fill-box;transform-origin:center;opacity:0;animation:pop .55s ease-out both}.g{animation:pop .55s ease-out both,flash .7s ease-out both}@keyframes pop{0%{opacity:0;transform:scale(.2)}60%{opacity:1;transform:scale(1.1)}100%{opacity:1;transform:scale(1)}}@keyframes flash{0%,45%{filter:brightness(2.4)}100%{filter:brightness(1)}}@media(prefers-reduced-motion:reduce){.c{opacity:1!important;animation:none!important}}</style>']
     seen: set[tuple[int, int]] = set()
     for column, week in enumerate(data):
@@ -168,7 +173,7 @@ def heatmap(days: list[Day]) -> None:
             level = min(max(day["level"], 0), 4)
             parts.append(f'<rect class="c{" g" if level else ""}" x="{8 + column * 16}" y="{25 + line * 16}" width="13" height="13" rx="2.5" fill="{palette[level]}" style="animation-delay:{column * .073 + line * .011:.3f}s"><title>{day["date"]}: {day["count"]} contribuições</title></rect>')
     total = sum(day["count"] for day in days)
-    parts += [f'<text x="8" y="158" fill="{TEXT}" font-size="12" font-weight="700">{total:,} contribuições no último ano</text>', f'<text x="852" y="158" text-anchor="end" fill="{MUTED}" font-size="10">menos  ■  ■  ■  ■  ■  mais</text>', '</svg>']
+    parts += [f'<text x="8" y="158" fill="{TEXT}" font-size="12" font-weight="700">{total:,} contribuições no último ano</text>', f'<text x="852" y="158" text-anchor="end" fill="{MUTED}" font-size="10">menos  <tspan fill="{palette[0]}">■</tspan>  <tspan fill="{palette[1]}">■</tspan>  <tspan fill="{palette[2]}">■</tspan>  <tspan fill="{palette[3]}">■</tspan>  <tspan fill="{palette[4]}">■</tspan>  mais</text>', '</svg>']
     (ASSETS / "contrib-heatmap.svg").write_text("".join(parts), encoding="utf-8")
 
 
