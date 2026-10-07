@@ -1,9 +1,10 @@
-"""Gera os SVGs exibidos no README do perfil do GitHub."""
+"""Gera os SVGs animados exibidos no README do perfil."""
 
 from __future__ import annotations
 
 import datetime as dt
 import html
+import io
 import os
 import re
 import urllib.request
@@ -11,9 +12,15 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import TypedDict
 
+from PIL import Image, ImageEnhance, ImageOps
+
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "assets"
 USERNAME = os.environ.get("GITHUB_PROFILE_USER", "Flpvoigt")
+FONT = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+BG, BG_TOP, BORDER = "#0d1117", "#111722", "#30363d"
+TEXT, MUTED = "#c9d1d9", "#7d8590"
+GREEN, BLUE, VIOLET = "#a8e6c1", "#a3d8e8", "#a9c9ff"
 
 
 class Day(TypedDict):
@@ -23,34 +30,28 @@ class Day(TypedDict):
 
 
 class ContributionsParser(HTMLParser):
-    """Extrai dias e tooltips do calendário público do GitHub."""
-
     def __init__(self) -> None:
         super().__init__()
         self.cells: list[dict[str, str]] = []
-        self.tooltips: dict[str, str] = {}
-        self._tooltip_for: str | None = None
-        self._tooltip_text: list[str] = []
+        self.tips: dict[str, str] = {}
+        self.target: str | None = None
+        self.text: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attributes = {key: value or "" for key, value in attrs}
-        classes = attributes.get("class", "").split()
-
-        if tag == "td" and "ContributionCalendar-day" in classes:
-            self.cells.append(attributes)
-        elif tag == "tool-tip" and attributes.get("for"):
-            self._tooltip_for = attributes["for"]
-            self._tooltip_text = []
+        values = {key: value or "" for key, value in attrs}
+        if tag == "td" and "ContributionCalendar-day" in values.get("class", "").split():
+            self.cells.append(values)
+        elif tag == "tool-tip" and values.get("for"):
+            self.target, self.text = values["for"], []
 
     def handle_data(self, data: str) -> None:
-        if self._tooltip_for is not None:
-            self._tooltip_text.append(data)
+        if self.target is not None:
+            self.text.append(data)
 
     def handle_endtag(self, tag: str) -> None:
-        if tag == "tool-tip" and self._tooltip_for is not None:
-            self.tooltips[self._tooltip_for] = "".join(self._tooltip_text).strip()
-            self._tooltip_for = None
-            self._tooltip_text = []
+        if tag == "tool-tip" and self.target is not None:
+            self.tips[self.target] = "".join(self.text).strip()
+            self.target = None
 
     def days(self) -> list[Day]:
         result: list[Day] = []
@@ -58,305 +59,124 @@ class ContributionsParser(HTMLParser):
             date = cell.get("data-date")
             if not date:
                 continue
-
-            tooltip = self.tooltips.get(cell.get("id", ""), "")
-            match = re.search(r"(\d+) contribution", tooltip, flags=re.IGNORECASE)
-            count = int(match.group(1)) if match else 0
-            result.append(
-                {
-                    "date": date,
-                    "count": count,
-                    "level": int(cell.get("data-level", "0")),
-                }
-            )
-
+            match = re.search(r"(\d+) contribution", self.tips.get(cell.get("id", ""), ""), re.I)
+            result.append({"date": date, "count": int(match.group(1)) if match else 0, "level": int(cell.get("data-level", "0"))})
         return sorted(result, key=lambda day: day["date"])
 
 
-def fetch_contributions() -> list[Day]:
-    url = f"https://github.com/users/{USERNAME}/contributions"
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "Flpvoigt-profile-readme/1.0"},
-    )
+def get(url: str) -> bytes:
+    request = urllib.request.Request(url, headers={"User-Agent": "Flpvoigt-profile-readme/2.0"})
     with urllib.request.urlopen(request, timeout=30) as response:
-        document = response.read().decode("utf-8")
+        return response.read()
 
+
+def contributions() -> list[Day]:
     parser = ContributionsParser()
-    parser.feed(document)
+    parser.feed(get(f"https://github.com/users/{USERNAME}/contributions").decode())
     days = parser.days()
     if not days:
-        raise RuntimeError(
-            "O calendário de contribuições do GitHub não foi encontrado."
-        )
+        raise RuntimeError("Calendário público de contribuições não encontrado.")
     return days
 
 
-def animation(content: str, index: int) -> str:
-    delay = 0.12 + index * 0.07
-    return f'<g class="line" style="animation-delay:{delay:.2f}s">{content}</g>'
-
-
-def generate_profile_card() -> None:
-    width, height = 900, 405
-    bg = "#0d1117"
-    panel = "#111827"
-    border = "#30363d"
-    text = "#e6edf3"
-    muted = "#8b949e"
-    blue = "#79c0ff"
-    green = "#7ee787"
-    violet = "#d2a8ff"
-
-    rows = [
-        ("Usuário", "Felipe Voigt"),
-        ("Função", "Desenvolvedor de software"),
-        ("Empresa", "JJW Sistemas"),
-        ("Local", "Timbó · Santa Catarina · Brasil"),
-        ("Foco", "Backend · APIs REST · integrações"),
-        ("Estudos", "Engenharia de Software"),
-        ("Backend", "Java · Spring Boot · Python · Go"),
-        ("Dados", "PostgreSQL · SQL · JPA · Hibernate"),
-        ("Web", "JavaScript · HTML · CSS"),
-        ("Ferramentas", "Maven · Git · GitHub"),
+def terminal(title: str, gradient: str) -> list[str]:
+    return [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="520" height="568" viewBox="0 0 520 568" font-family="{FONT}" role="img">',
+        f'<defs><linearGradient id="{gradient}" x1="0" y1="0" x2="0" y2="1"><stop stop-color="{BG_TOP}"/><stop offset="1" stop-color="{BG}"/></linearGradient></defs>',
+        f'<rect width="520" height="568" rx="12" fill="url(#{gradient})"/><rect x=".5" y=".5" width="519" height="567" rx="12" fill="none" stroke="{BORDER}"/>',
+        f'<line x1="0" y1="30" x2="520" y2="30" stroke="{BORDER}"/><circle cx="20" cy="15" r="5" fill="#ff5f56"/><circle cx="36" cy="15" r="5" fill="#ffbd2e"/><circle cx="52" cy="15" r="5" fill="#27c93f"/>',
+        f'<text x="260" y="19" fill="{MUTED}" font-size="12" text-anchor="middle">{html.escape(title)}</text>',
     ]
 
-    parts = [
-        (
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-            f'viewBox="0 0 {width} {height}" role="img" aria-label="Perfil profissional de Felipe Voigt">'
-        ),
-        "<style>",
-        ".line{opacity:0;transform:translateY(5px);animation:show .45s ease forwards}",
-        "@keyframes show{to{opacity:1;transform:translateY(0)}}",
-        "</style>",
-        f'<rect width="{width}" height="{height}" rx="14" fill="{bg}"/>',
-        (
-            f'<rect x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" rx="14" '
-            f'fill="none" stroke="{border}"/>'
-        ),
-        f'<rect x="1" y="1" width="{width - 2}" height="36" rx="13" fill="{panel}"/>',
-        f'<line x1="0" y1="36" x2="{width}" y2="36" stroke="{border}"/>',
-    ]
 
-    for index, color in enumerate(("#ff5f56", "#ffbd2e", "#27c93f")):
-        parts.append(f'<circle cx="{22 + index * 18}" cy="18" r="5" fill="{color}"/>')
+def make_ascii() -> list[str]:
+    image = Image.open(io.BytesIO(get("https://avatars.githubusercontent.com/u/215292676?v=4"))).convert("L")
+    image = ImageOps.fit(image, (48, 35), method=Image.Resampling.LANCZOS)
+    image = ImageEnhance.Contrast(ImageOps.autocontrast(image, cutoff=2)).enhance(1.35)
+    ramp = " .,:;irsXA253hMHGS#9B&@"
+    return ["".join(ramp[p * (len(ramp) - 1) // 255] for p in image.crop((0, y, 48, y + 1)).getdata()).rstrip() for y in range(35)]
 
-    parts.extend(
-        [
-            (
-                f'<text x="450" y="23" text-anchor="middle" fill="{muted}" font-size="12" '
-                'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">'
-                "felipe@github: ~ $ neofetch</text>"
-            ),
-            f'<line x1="360" y1="55" x2="360" y2="382" stroke="{border}"/>',
-            (
-                f'<text x="180" y="125" text-anchor="middle" fill="{green}" font-size="62" '
-                'font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">'
-                "&lt;/&gt;</text>"
-            ),
-            (
-                f'<text x="180" y="169" text-anchor="middle" fill="{blue}" font-size="23" '
-                'font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">'
-                "backend</text>"
-            ),
-            (
-                f'<text x="180" y="202" text-anchor="middle" fill="{muted}" font-size="13" '
-                'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">'
-                "APIs · dados · integrações</text>"
-            ),
-            f'<rect x="70" y="233" width="220" height="1" fill="{border}"/>',
-            (
-                f'<text x="180" y="270" text-anchor="middle" fill="{text}" font-size="13" '
-                'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">código simples</text>'
-            ),
-            (
-                f'<text x="180" y="294" text-anchor="middle" fill="{text}" font-size="13" '
-                'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">regras claras</text>'
-            ),
-            (
-                f'<text x="180" y="318" text-anchor="middle" fill="{text}" font-size="13" '
-                'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">manutenção tranquila</text>'
-            ),
+
+def portrait() -> None:
+    parts = terminal(f"{USERNAME.lower()}@github: ~$ ./portrait.sh", "portrait-bg")
+    left = 104
+    for index, line in enumerate(make_ascii()):
+        y, begin, duration = 49 + index * 14.2, index * .085, .085
+        width = max(len(line), 1) * 6.15
+        parts += [
+            f'<clipPath id="l{index}"><rect x="{left}" y="{y - 11}" height="14" width="0"><animate attributeName="width" from="0" to="{width:.1f}" begin="{begin:.3f}s" dur="{duration}s" fill="freeze"/></rect></clipPath>',
+            f'<g clip-path="url(#l{index})"><text xml:space="preserve" x="{left}" y="{y}" fill="{TEXT}" font-size="10.2">{html.escape(line)}</text></g>',
+            f'<rect y="{y - 10}" width="6" height="11" fill="{GREEN}" opacity="0"><animate attributeName="x" from="{left}" to="{left + width:.1f}" begin="{begin:.3f}s" dur="{duration}s" fill="freeze"/><set attributeName="opacity" to=".9" begin="{begin:.3f}s"/><set attributeName="opacity" to="0" begin="{begin + duration:.3f}s"/></rect>',
         ]
-    )
-
-    y = 70
-    for index, (key, value) in enumerate(rows):
-        if index == 6:
-            parts.append(
-                animation(
-                    f'<text x="392" y="{y}" fill="{violet}" font-size="13" font-weight="700" '
-                    'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">— stack</text>',
-                    index,
-                )
-            )
-            y += 28
-
-        row = (
-            f'<text x="392" y="{y}" fill="{green}" font-size="13" font-weight="700" '
-            'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">'
-            f"{html.escape(key)}</text>"
-            f'<text x="515" y="{y}" fill="{text}" font-size="13" '
-            'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">'
-            f"{html.escape(value)}</text>"
-        )
-        parts.append(animation(row, index))
-        y += 27
-
     parts.append("</svg>")
-    (ASSETS / "profile-card.svg").write_text("".join(parts), encoding="utf-8")
+    (ASSETS / "felipe-ascii.svg").write_text("".join(parts), encoding="utf-8")
 
 
-def streaks(days: list[Day]) -> tuple[int, int]:
-    longest = run = 0
-    for day in days:
-        if day["count"]:
-            run += 1
-            longest = max(longest, run)
-        else:
-            run = 0
-
-    index = len(days) - 1
-    if index >= 0 and days[index]["count"] == 0:
-        index -= 1
-    current = 0
-    while index >= 0 and days[index]["count"]:
-        current += 1
-        index -= 1
-    return current, longest
+def row(y: int, label: str, value: str, delay: float) -> str:
+    return (f'<g opacity="0" transform="translate(0,5)"><text x="20" y="{y}" fill="{GREEN}" font-size="12.5" font-weight="700">{html.escape(label)}</text><text x="120" y="{y}" fill="{TEXT}" font-size="12.5">{html.escape(value)}</text>'
+            f'<animate attributeName="opacity" from="0" to="1" begin="{delay:.2f}s" dur=".4s" fill="freeze"/><animateTransform attributeName="transform" type="translate" from="0 5" to="0 0" begin="{delay:.2f}s" dur=".4s" fill="freeze" calcMode="spline" keySplines=".2 .8 .2 1"/></g>')
 
 
-def build_grid(days: list[Day]) -> list[list[Day | None]]:
-    first = dt.date.fromisoformat(days[0]["date"])
-    leading = (first.weekday() + 1) % 7
-    flat: list[Day | None] = [None] * leading + list(days)
-    while len(flat) % 7:
-        flat.append(None)
-    return [flat[index : index + 7] for index in range(0, len(flat), 7)]
+def section(y: int, name: str, delay: float) -> str:
+    start = 32 + len(name) * 7.5
+    return (f'<g opacity="0" transform="translate(0,5)"><text x="20" y="{y}" fill="{VIOLET}" font-size="12.5" font-weight="700">— {name}</text><line x1="{start:.0f}" y1="{y - 4}" x2="500" y2="{y - 4}" stroke="{BORDER}"/>'
+            f'<animate attributeName="opacity" from="0" to="1" begin="{delay:.2f}s" dur=".4s" fill="freeze"/><animateTransform attributeName="transform" type="translate" from="0 5" to="0 0" begin="{delay:.2f}s" dur=".4s" fill="freeze"/></g>')
 
 
-def generate_contribution_graph(days: list[Day]) -> None:
-    width, height = 900, 260
-    padding = 22
-    left = 48
-    top = 68
-    cell = 11
-    gap = 3
-    step = cell + gap
-    palette = ("#161b22", "#0e4429", "#006d32", "#26a641", "#39d353")
-    bg = "#0d1117"
-    border = "#30363d"
-    muted = "#8b949e"
-    green = "#7ee787"
-    blue = "#79c0ff"
-    grid = build_grid(days)
-
-    parts = [
-        (
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-            f'viewBox="0 0 {width} {height}" role="img" aria-label="Contribuições de {USERNAME} no GitHub">'
-        ),
-        "<style>",
-        ".cell{opacity:0;animation:reveal .38s ease forwards}",
-        "@keyframes reveal{to{opacity:1}}",
-        "</style>",
-        f'<rect width="{width}" height="{height}" rx="14" fill="{bg}"/>',
-        (
-            f'<rect x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" rx="14" '
-            f'fill="none" stroke="{border}"/>'
-        ),
-        f'<line x1="0" y1="36" x2="{width}" y2="36" stroke="{border}"/>',
+def info_card() -> None:
+    parts = terminal(f"{USERNAME.lower()}@github: ~$ neofetch", "info-bg")
+    parts.append(f'<g opacity="0" transform="translate(0,5)"><text x="20" y="60" font-size="14" font-weight="700"><tspan fill="{GREEN}">felipe</tspan><tspan fill="{MUTED}">@</tspan><tspan fill="{BLUE}">github</tspan></text><line x1="128" y1="56" x2="500" y2="56" stroke="{BORDER}"/><animate attributeName="opacity" from="0" to="1" begin=".15s" dur=".4s" fill="freeze"/><animateTransform attributeName="transform" type="translate" from="0 5" to="0 0" begin=".15s" dur=".4s" fill="freeze"/></g>')
+    groups = [
+        ([(82, "Now", "Desenvolvedor @ JJW Sistemas"), (104, "Edu", "Engenharia de Software"), (126, "Local", "Timbó, SC · Brasil")], .21),
+        ([(180, "Backend", "Java, Spring Boot, Python, Go"), (202, "Data", "PostgreSQL, SQL, JPA, Hibernate"), (224, "Web", "JavaScript, HTML, CSS"), (246, "Tools", "Maven, Git, GitHub")], .51),
+        ([(302, "Build", "APIs REST e integrações"), (324, "Care", "Código limpo e manutenção simples"), (346, "Learn", "Arquitetura e automação")], .87),
+        ([(402, "GitHub", "github.com/Flpvoigt"), (424, "Instagram", "instagram.com/flpvoigt")], 1.17),
     ]
+    parts += [row(y, label, value, start + index * .06) for rows, start in groups for index, (y, label, value) in enumerate(rows)]
+    parts += [section(158, "Stack", .45), section(280, "Focus", .81), section(380, "Links", 1.11)]
+    parts.append('<g opacity="0"><rect x="20" y="462" width="18" height="18" rx="3" fill="#a8e6c1"/><rect x="43" y="462" width="18" height="18" rx="3" fill="#5c9e78"/><rect x="66" y="462" width="18" height="18" rx="3" fill="#3d6f52"/><rect x="89" y="462" width="18" height="18" rx="3" fill="#a3d8e8"/><rect x="112" y="462" width="18" height="18" rx="3" fill="#a9c9ff"/><animate attributeName="opacity" from="0" to="1" begin="1.35s" dur=".5s" fill="freeze"/></g>')
+    parts.append(f'<text x="20" y="518" fill="{MUTED}" font-size="11" opacity="0">Automatizando tarefas para ter mais tempo<tspan x="20" dy="16">de complicar outras.</tspan><animate attributeName="opacity" from="0" to="1" begin="1.5s" dur=".5s" fill="freeze"/></text></svg>')
+    (ASSETS / "info-card.svg").write_text("".join(parts), encoding="utf-8")
 
-    for index, color in enumerate(("#ff5f56", "#ffbd2e", "#27c93f")):
-        parts.append(f'<circle cx="{22 + index * 18}" cy="18" r="5" fill="{color}"/>')
-    parts.append(
-        f'<text x="450" y="23" text-anchor="middle" fill="{muted}" font-size="12" '
-        'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">'
-        f"{USERNAME.lower()}@github: ~/contributions --graph</text>"
-    )
 
-    seen_months: set[tuple[int, int]] = set()
-    for column_index, column in enumerate(grid):
-        for day in column:
+def grid(days: list[Day]) -> list[list[Day | None]]:
+    first = dt.date.fromisoformat(days[0]["date"])
+    flat: list[Day | None] = [None] * ((first.weekday() + 1) % 7) + list(days)
+    flat += [None] * ((-len(flat)) % 7)
+    return [flat[index:index + 7] for index in range(0, len(flat), 7)]
+
+
+def heatmap(days: list[Day]) -> None:
+    data = grid(days)
+    palette = ("#2a3430", "#2a4a3a", "#3d6f52", "#5c9e78", "#a8e6c1")
+    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="860" height="176" viewBox="0 0 860 176" font-family="{FONT}" role="img" aria-label="Contribuições de {USERNAME}">', '<style>.c{transform-box:fill-box;transform-origin:center;opacity:0;animation:pop .55s ease-out both}.g{animation:pop .55s ease-out both,flash .7s ease-out both}@keyframes pop{0%{opacity:0;transform:scale(.2)}60%{opacity:1;transform:scale(1.1)}100%{opacity:1;transform:scale(1)}}@keyframes flash{0%,45%{filter:brightness(2.4)}100%{filter:brightness(1)}}@media(prefers-reduced-motion:reduce){.c{opacity:1!important;animation:none!important}}</style>']
+    seen: set[tuple[int, int]] = set()
+    for column, week in enumerate(data):
+        for day in week:
             if day is None:
                 continue
             date = dt.date.fromisoformat(day["date"])
             marker = (date.year, date.month)
-            if marker not in seen_months and date.day <= 7:
-                seen_months.add(marker)
-                parts.append(
-                    f'<text x="{left + column_index * step}" y="57" fill="{muted}" font-size="10" '
-                    'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">'
-                    f"{date.strftime('%b')}</text>"
-                )
+            if marker not in seen and date.day <= 7:
+                seen.add(marker)
+                parts.append(f'<text x="{8 + column * 16}" y="14" fill="{MUTED}" font-size="10">{date.strftime("%b")}</text>')
             break
-
-    for row, label in ((1, "Seg"), (3, "Qua"), (5, "Sex")):
-        parts.append(
-            f'<text x="{padding}" y="{top + row * step + 9}" fill="{muted}" font-size="9" '
-            f'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">{label}</text>'
-        )
-
-    for column_index, column in enumerate(grid):
-        for row_index, day in enumerate(column):
+    for column, week in enumerate(data):
+        for line, day in enumerate(week):
             if day is None:
                 continue
-            x = left + column_index * step
-            y = top + row_index * step
-            level = min(max(day["level"], 0), len(palette) - 1)
-            delay = column_index * 0.012 + row_index * 0.018
-            word = "contribuição" if day["count"] == 1 else "contribuições"
-            parts.append(
-                f'<rect class="cell" x="{x}" y="{y}" width="{cell}" height="{cell}" rx="2" '
-                f'fill="{palette[level]}" style="animation-delay:{delay:.3f}s">'
-                f"<title>{day['date']}: {day['count']} {word}</title></rect>"
-            )
-
+            level = min(max(day["level"], 0), 4)
+            parts.append(f'<rect class="c{" g" if level else ""}" x="{8 + column * 16}" y="{25 + line * 16}" width="13" height="13" rx="2.5" fill="{palette[level]}" style="animation-delay:{column * .073 + line * .011:.3f}s"><title>{day["date"]}: {day["count"]} contribuições</title></rect>')
     total = sum(day["count"] for day in days)
-    active = sum(day["count"] > 0 for day in days)
-    current, longest = streaks(days)
-    best = max(days, key=lambda day: day["count"])
-    separator_y = top + 7 * step + 16
-    parts.extend(
-        [
-            (
-                f'<line x1="{padding}" y1="{separator_y}" x2="{width - padding}" y2="{separator_y}" '
-                f'stroke="{border}"/>'
-            ),
-            (
-                f'<text x="{padding}" y="{separator_y + 27}" fill="{green}" font-size="13" font-weight="700" '
-                'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">'
-                f'{total} contribuições <tspan fill="{muted}" font-weight="400">no último ano</tspan></text>'
-            ),
-            (
-                f'<text x="{width - padding}" y="{separator_y + 27}" text-anchor="end" fill="{muted}" font-size="12" '
-                'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">'
-                f'{active} dias ativos · melhor dia: <tspan fill="{blue}">{best["count"]}</tspan></text>'
-            ),
-            (
-                f'<text x="{padding}" y="{separator_y + 51}" fill="{muted}" font-size="12" '
-                'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">sequência atual '
-                f'<tspan fill="{blue}" font-weight="700">{current} dias</tspan> · maior sequência '
-                f'<tspan fill="{blue}" font-weight="700">{longest} dias</tspan></text>'
-            ),
-            (
-                f'<text x="{width - padding}" y="{separator_y + 51}" text-anchor="end" fill="{muted}" font-size="11" '
-                'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">'
-                f"{days[0]['date']} → {days[-1]['date']}</text>"
-            ),
-        ]
-    )
-
-    parts.append("</svg>")
-    (ASSETS / "contribution-graph.svg").write_text("".join(parts), encoding="utf-8")
+    parts += [f'<text x="8" y="158" fill="{TEXT}" font-size="12" font-weight="700">{total:,} contribuições no último ano</text>', f'<text x="852" y="158" text-anchor="end" fill="{MUTED}" font-size="10">menos  ■  ■  ■  ■  ■  mais</text>', '</svg>']
+    (ASSETS / "contrib-heatmap.svg").write_text("".join(parts), encoding="utf-8")
 
 
 def main() -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
-    generate_profile_card()
-    generate_contribution_graph(fetch_contributions())
+    heatmap(contributions())
+    portrait()
+    info_card()
     print("Assets do perfil gerados em", ASSETS)
 
 
