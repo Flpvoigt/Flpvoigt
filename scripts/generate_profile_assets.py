@@ -113,7 +113,7 @@ def portrait() -> None:
         ]
     parts.append("</svg>")
     parts.insert(-1, f'<text x="260" y="553" text-anchor="middle" fill="{MUTED}" font-size="10" opacity="0">render concluído · 68 × 35 · grayscale<animate attributeName="opacity" from="0" to="1" begin="3.1s" dur=".5s" fill="freeze"/></text>')
-    (ASSETS / "felipe-ascii.svg").write_text("".join(parts), encoding="utf-8")
+    (ASSETS / "felipe-ascii-v2.svg").write_text("".join(parts), encoding="utf-8")
 
 
 def row(y: int, label: str, value: str, delay: float) -> str:
@@ -141,7 +141,7 @@ def info_card() -> None:
     parts.append('<g opacity="0"><rect x="20" y="462" width="18" height="18" rx="3" fill="#a8e6c1"/><rect x="43" y="462" width="18" height="18" rx="3" fill="#5c9e78"/><rect x="66" y="462" width="18" height="18" rx="3" fill="#3d6f52"/><rect x="89" y="462" width="18" height="18" rx="3" fill="#a3d8e8"/><rect x="112" y="462" width="18" height="18" rx="3" fill="#a9c9ff"/><animate attributeName="opacity" from="0" to="1" begin="1.35s" dur=".5s" fill="freeze"/></g>')
     parts.append(f'<text x="20" y="510" fill="{MUTED}" font-size="11" opacity="0">Automatizando tarefas para ter mais tempo<tspan x="20" dy="16">de complicar outras.</tspan><animate attributeName="opacity" from="0" to="1" begin="1.5s" dur=".5s" fill="freeze"/></text>')
     parts.append(f'<g opacity="0"><text x="20" y="554" fill="{GREEN}" font-size="11">felipe@github</text><text x="108" y="554" fill="{MUTED}" font-size="11">:~$</text><rect x="137" y="544" width="7" height="12" fill="{TEXT}"><animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/></rect><animate attributeName="opacity" from="0" to="1" begin="1.8s" dur=".4s" fill="freeze"/></g></svg>')
-    (ASSETS / "info-card.svg").write_text("".join(parts), encoding="utf-8")
+    (ASSETS / "info-card-v2.svg").write_text("".join(parts), encoding="utf-8")
 
 
 def grid(days: list[Day]) -> list[list[Day | None]]:
@@ -174,7 +174,7 @@ def heatmap(days: list[Day]) -> None:
             parts.append(f'<rect class="c{" g" if level else ""}" x="{8 + column * 16}" y="{25 + line * 16}" width="13" height="13" rx="2.5" fill="{palette[level]}" style="animation-delay:{column * .073 + line * .011:.3f}s"><title>{day["date"]}: {day["count"]} contribuições</title></rect>')
     total = sum(day["count"] for day in days)
     parts += [f'<text x="8" y="158" fill="{TEXT}" font-size="12" font-weight="700">{total:,} contribuições no último ano</text>', f'<text x="852" y="158" text-anchor="end" fill="{MUTED}" font-size="10">menos  <tspan fill="{palette[0]}">■</tspan>  <tspan fill="{palette[1]}">■</tspan>  <tspan fill="{palette[2]}">■</tspan>  <tspan fill="{palette[3]}">■</tspan>  <tspan fill="{palette[4]}">■</tspan>  mais</text>', '</svg>']
-    (ASSETS / "contrib-heatmap.svg").write_text("".join(parts), encoding="utf-8")
+    (ASSETS / "contrib-heatmap-v2.svg").write_text("".join(parts), encoding="utf-8")
 
 
 def main() -> None:
